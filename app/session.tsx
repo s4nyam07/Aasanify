@@ -189,7 +189,7 @@ function PoseView({ pose, timeRemaining, holdSeconds, breathScale }: {
   pose: typeof SURYA_NAMASKAR_POSES[0];
   timeRemaining: number;
   holdSeconds: number;
-  breathScale: Animated.SharedValue<number>;
+  breathScale: any;
 }) {
   const progress = holdSeconds > 0 ? timeRemaining / holdSeconds : 0;
   const dashOffset = CIRCUMFERENCE * (1 - progress);
