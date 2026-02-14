@@ -6,6 +6,7 @@ import {
   Pressable,
   Platform,
   Dimensions,
+  Alert,
 } from "react-native";
 import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -20,14 +21,15 @@ import Animated, {
   Easing,
   FadeIn,
   FadeInDown,
-  FadeOut,
 } from "react-native-reanimated";
 import Svg, { Circle } from "react-native-svg";
 import * as Speech from "expo-speech";
 import * as Haptics from "expo-haptics";
+import { Audio } from "expo-av";
 import { useAuth } from "@/lib/auth-context";
 import { saveSession } from "@/lib/firebase";
 import { SURYA_NAMASKAR_POSES, getPoseImage } from "@/constants/poses";
+import { isAudioDownloaded, getAudioUri, getMediaSettings, type MediaSettings } from "@/lib/media-manager";
 import Colors from "@/constants/colors";
 
 const C = Colors.dark;
@@ -84,7 +86,29 @@ function ConfigView({ onStart }: { onStart: (config: { mode: Mode; rounds: numbe
   const [minutes, setMinutes] = useState(10);
   const [holdSeconds, setHoldSeconds] = useState(15);
   const [restSeconds, setRestSeconds] = useState(5);
+  const [audioAvailable, setAudioAvailable] = useState(false);
+  const [checking, setChecking] = useState(true);
   const topPad = Platform.OS === 'web' ? 67 : insets.top;
+
+  useEffect(() => {
+    isAudioDownloaded().then(ok => {
+      setAudioAvailable(ok);
+      setChecking(false);
+    });
+  }, []);
+
+  const handleStartPress = () => {
+    if (!audioAvailable) {
+      Alert.alert(
+        "Audio Required",
+        "Please download the Sun Salutation audio from your Profile before starting a session.",
+        [{ text: "OK" }]
+      );
+      return;
+    }
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+    onStart({ mode, rounds, minutes, holdSeconds, restSeconds });
+  };
 
   return (
     <View style={[configStyles.container, { paddingTop: topPad + 16 }]}>
@@ -127,18 +151,26 @@ function ConfigView({ onStart }: { onStart: (config: { mode: Mode; rounds: numbe
           <Stepper value={holdSeconds} onValueChange={setHoldSeconds} min={5} max={60} label="Hold Time" unit="sec" />
           <Stepper value={restSeconds} onValueChange={setRestSeconds} min={2} max={20} label="Rest Time" unit="sec" />
         </View>
+
+        {!checking && !audioAvailable && (
+          <Animated.View entering={FadeIn.duration(300)} style={configStyles.warningBox}>
+            <Ionicons name="warning-outline" size={18} color={C.accent} />
+            <Text style={configStyles.warningText}>Download audio from Profile to start</Text>
+          </Animated.View>
+        )}
       </Animated.View>
 
       <Animated.View entering={FadeInDown.delay(300).duration(400)} style={[configStyles.bottomArea, { paddingBottom: Platform.OS === 'web' ? 34 : insets.bottom + 16 }]}>
         <Pressable
-          style={({ pressed }) => [configStyles.startBtn, pressed && { opacity: 0.9, transform: [{ scale: 0.98 }] }]}
-          onPress={() => {
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
-            onStart({ mode, rounds, minutes, holdSeconds, restSeconds });
-          }}
+          style={({ pressed }) => [
+            configStyles.startBtn,
+            !audioAvailable && configStyles.startBtnDisabled,
+            pressed && audioAvailable && { opacity: 0.9, transform: [{ scale: 0.98 }] },
+          ]}
+          onPress={handleStartPress}
         >
-          <Ionicons name="play" size={24} color={C.background} />
-          <Text style={configStyles.startBtnText}>Start Session</Text>
+          <Ionicons name="play" size={24} color={audioAvailable ? C.background : C.textSecondary} />
+          <Text style={[configStyles.startBtnText, !audioAvailable && { color: C.textSecondary }]}>Start Session</Text>
         </Pressable>
       </Animated.View>
     </View>
@@ -212,10 +244,16 @@ function ActiveView({ config, onComplete }: {
   const [timeRemaining, setTimeRemaining] = useState(config.holdSeconds);
   const [isPaused, setIsPaused] = useState(false);
   const [totalElapsed, setTotalElapsed] = useState(0);
+  const [mediaSettings, setMediaSettings] = useState<MediaSettings>({ ttsEnabled: true, bgAudioEnabled: true });
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const soundRef = useRef<Audio.Sound | null>(null);
   const topPad = Platform.OS === 'web' ? 67 : insets.top;
 
   const breathScale = useSharedValue(1);
+
+  useEffect(() => {
+    getMediaSettings().then(setMediaSettings);
+  }, []);
 
   useEffect(() => {
     breathScale.value = withRepeat(
@@ -227,16 +265,57 @@ function ActiveView({ config, onComplete }: {
     );
   }, []);
 
+  useEffect(() => {
+    let mounted = true;
+    const loadAudio = async () => {
+      try {
+        await Audio.setAudioModeAsync({
+          playsInSilentModeIOS: true,
+          staysActiveInBackground: true,
+        });
+
+        const uri = await getAudioUri();
+        if (!uri || !mounted) return;
+
+        const settings = await getMediaSettings();
+        if (!settings.bgAudioEnabled || !mounted) return;
+
+        const { sound } = await Audio.Sound.createAsync(
+          { uri },
+          { isLooping: true, volume: 0.4, shouldPlay: true }
+        );
+        if (mounted) {
+          soundRef.current = sound;
+        } else {
+          await sound.unloadAsync();
+        }
+      } catch (e) {
+        console.error('Audio load error:', e);
+      }
+    };
+
+    loadAudio();
+
+    return () => {
+      mounted = false;
+      if (soundRef.current) {
+        soundRef.current.unloadAsync().catch(() => {});
+        soundRef.current = null;
+      }
+    };
+  }, []);
+
   const currentPose = SURYA_NAMASKAR_POSES[currentStep];
 
   const speakPose = useCallback((step: number) => {
+    if (!mediaSettings.ttsEnabled) return;
     const pose = SURYA_NAMASKAR_POSES[step];
     Speech.stop();
     Speech.speak(`Step ${pose.step}. ${pose.sanskrit}. ${pose.name}.`, {
       language: 'en-US',
       rate: 0.85,
     });
-  }, []);
+  }, [mediaSettings.ttsEnabled]);
 
   useEffect(() => {
     speakPose(currentStep);
@@ -277,8 +356,11 @@ function ActiveView({ config, onComplete }: {
   useEffect(() => {
     if (isPaused) {
       if (intervalRef.current) clearInterval(intervalRef.current);
+      if (soundRef.current) soundRef.current.setStatusAsync({ shouldPlay: false }).catch(() => {});
       return;
     }
+
+    if (soundRef.current) soundRef.current.setStatusAsync({ shouldPlay: true }).catch(() => {});
 
     intervalRef.current = setInterval(() => {
       setTotalElapsed(e => e + 1);
@@ -299,6 +381,16 @@ function ActiveView({ config, onComplete }: {
       if (intervalRef.current) clearInterval(intervalRef.current);
     };
   }, [isPaused, phase, moveToNextPose, handleRestComplete]);
+
+  const cleanup = useCallback(() => {
+    Speech.stop();
+    if (intervalRef.current) clearInterval(intervalRef.current);
+    if (soundRef.current) {
+      soundRef.current.stopAsync().catch(() => {});
+      soundRef.current.unloadAsync().catch(() => {});
+      soundRef.current = null;
+    }
+  }, []);
 
   const goNext = () => {
     if (phase === 'rest') {
@@ -334,8 +426,7 @@ function ActiveView({ config, onComplete }: {
     <View style={[activeStyles.container, { paddingTop: topPad }]}>
       <View style={activeStyles.topBar}>
         <Pressable onPress={() => {
-          Speech.stop();
-          if (intervalRef.current) clearInterval(intervalRef.current);
+          cleanup();
           router.back();
         }} hitSlop={16}>
           <Ionicons name="close" size={26} color={C.text} />
@@ -566,6 +657,23 @@ const configStyles = StyleSheet.create({
     minWidth: 60,
     textAlign: "center",
   },
+  warningBox: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    backgroundColor: C.accentDim,
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    marginTop: 20,
+    width: '100%',
+  },
+  warningText: {
+    fontFamily: "Outfit_500Medium",
+    fontSize: 13,
+    color: C.accent,
+    flex: 1,
+  },
   bottomArea: {
     paddingHorizontal: 24,
     paddingTop: 16,
@@ -578,6 +686,9 @@ const configStyles = StyleSheet.create({
     backgroundColor: C.accent,
     borderRadius: 16,
     paddingVertical: 18,
+  },
+  startBtnDisabled: {
+    backgroundColor: C.surfaceElevated,
   },
   startBtnText: {
     fontFamily: "Outfit_700Bold",
@@ -680,7 +791,7 @@ const activeStyles = StyleSheet.create({
   },
   restTimer: {
     fontFamily: "Outfit_700Bold",
-    fontSize: 72,
+    fontSize: 64,
     color: C.accent,
   },
   restSub: {
