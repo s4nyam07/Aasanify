@@ -39,6 +39,14 @@ const RING_RADIUS = 82;
 const RING_STROKE = 8;
 const CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS;
 
+function safeSpeakStop() {
+  try { Speech.stop(); } catch {}
+}
+
+function safeSpeak(text: string, opts?: Speech.SpeechOptions) {
+  try { Speech.speak(text, opts); } catch {}
+}
+
 type Phase = 'config' | 'active' | 'rest' | 'complete';
 type Mode = 'rounds' | 'minutes';
 
@@ -310,8 +318,8 @@ function ActiveView({ config, onComplete }: {
   const speakPose = useCallback((step: number) => {
     if (!mediaSettings.ttsEnabled) return;
     const pose = SURYA_NAMASKAR_POSES[step];
-    Speech.stop();
-    Speech.speak(`Step ${pose.step}. ${pose.sanskrit}. ${pose.name}.`, {
+    safeSpeakStop();
+    safeSpeak(`Step ${pose.step}. ${pose.sanskrit}. ${pose.name}.`, {
       language: 'en-US',
       rate: 0.85,
     });
@@ -383,7 +391,7 @@ function ActiveView({ config, onComplete }: {
   }, [isPaused, phase, moveToNextPose, handleRestComplete]);
 
   const cleanup = useCallback(() => {
-    Speech.stop();
+    safeSpeakStop();
     if (intervalRef.current) clearInterval(intervalRef.current);
     if (soundRef.current) {
       soundRef.current.stopAsync().catch(() => {});
@@ -541,7 +549,7 @@ export default function SessionScreen() {
     setCompletionData({ rounds, elapsed });
     setPhase('complete');
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    Speech.speak("Session complete. Namaste.", { language: 'en-US', rate: 0.85 });
+    safeSpeak("Session complete. Namaste.", { language: 'en-US', rate: 0.85 });
   };
 
   const handleSave = async () => {
@@ -557,7 +565,7 @@ export default function SessionScreen() {
         console.error('Failed to save session:', e);
       }
     }
-    Speech.stop();
+    safeSpeakStop();
     router.back();
   };
 
