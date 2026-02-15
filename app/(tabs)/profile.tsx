@@ -119,6 +119,18 @@ export default function ProfileScreen() {
     ? profile.name.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2)
     : '?';
 
+  const handleSubscriptionClick = () => {
+    if (Platform.OS === 'web') {
+      alert('Subscriptions coming soon');
+      return;
+    }
+    Alert.alert(
+      "Subscriptions Coming Soon",
+      "Premium features and subscription plans will be available soon. Stay tuned!",
+      [{ text: "OK" }]
+    );
+  };
+
   return (
     <View style={[styles.container, { paddingTop: topPad }]}>
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
@@ -241,6 +253,42 @@ export default function ProfileScreen() {
               {profile?.createdAt ? new Date(profile.createdAt).toLocaleDateString('en-US', { month: 'short', year: 'numeric' }) : '-'}
             </Text>
           </View>
+        </Animated.View>
+
+        <Animated.View entering={FadeInDown.delay(350).duration(500)}>
+          <Pressable
+            style={({ pressed }) => [styles.subscriptionCard, pressed && { opacity: 0.9, transform: [{ scale: 0.98 }] }]}
+            onPress={handleSubscriptionClick}
+          >
+            <View style={styles.subscriptionHeader}>
+              <View style={styles.subscriptionIconBox}>
+                <Ionicons name="star" size={24} color={C.accent} />
+              </View>
+              <View style={styles.subscriptionInfo}>
+                <Text style={styles.subscriptionTitle}>Subscription</Text>
+                <Text style={styles.subscriptionPlan}>Free</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={22} color={C.textTertiary} />
+            </View>
+            <View style={styles.subscriptionDivider} />
+            <View style={styles.subscriptionFeatures}>
+              <View style={styles.featureRow}>
+                <Ionicons name="checkmark-circle" size={18} color={C.success} />
+                <Text style={styles.featureText}>Basic Surya Namaskar</Text>
+              </View>
+              <View style={styles.featureRow}>
+                <Ionicons name="checkmark-circle" size={18} color={C.success} />
+                <Text style={styles.featureText}>Session tracking</Text>
+              </View>
+              <View style={styles.featureRow}>
+                <Ionicons name="lock-closed" size={18} color={C.textTertiary} />
+                <Text style={styles.featureTextLocked}>Premium features coming soon</Text>
+              </View>
+            </View>
+            <View style={styles.upgradeHint}>
+              <Text style={styles.upgradeText}>Tap to learn about upcoming premium plans</Text>
+            </View>
+          </Pressable>
         </Animated.View>
 
         <Animated.View entering={FadeInDown.delay(400).duration(500)}>
@@ -507,5 +555,76 @@ const styles = StyleSheet.create({
     fontFamily: "Outfit_600SemiBold",
     fontSize: 16,
     color: C.error,
+  },
+  subscriptionCard: {
+    backgroundColor: C.surface,
+    borderRadius: 20,
+    padding: 20,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: C.border,
+  },
+  subscriptionHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 14,
+  },
+  subscriptionIconBox: {
+    width: 48,
+    height: 48,
+    borderRadius: 14,
+    backgroundColor: C.accentDim,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  subscriptionInfo: {
+    flex: 1,
+    gap: 2,
+  },
+  subscriptionTitle: {
+    fontFamily: "Outfit_500Medium",
+    fontSize: 14,
+    color: C.textSecondary,
+  },
+  subscriptionPlan: {
+    fontFamily: "Outfit_700Bold",
+    fontSize: 20,
+    color: C.text,
+  },
+  subscriptionDivider: {
+    height: 1,
+    backgroundColor: C.border,
+    marginVertical: 16,
+  },
+  subscriptionFeatures: {
+    gap: 10,
+    marginBottom: 14,
+  },
+  featureRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  featureText: {
+    fontFamily: "Outfit_400Regular",
+    fontSize: 14,
+    color: C.text,
+  },
+  featureTextLocked: {
+    fontFamily: "Outfit_400Regular",
+    fontSize: 14,
+    color: C.textTertiary,
+  },
+  upgradeHint: {
+    backgroundColor: C.accentDim,
+    borderRadius: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    alignItems: "center",
+  },
+  upgradeText: {
+    fontFamily: "Outfit_500Medium",
+    fontSize: 13,
+    color: C.accentMuted,
   },
 });

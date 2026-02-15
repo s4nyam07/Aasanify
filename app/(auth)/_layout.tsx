@@ -3,9 +3,12 @@ import { Stack } from "expo-router";
 import { Redirect } from "expo-router";
 import { ActivityIndicator, View } from "react-native";
 import { useAuth } from "@/lib/auth-context";
+import { useNetwork } from "@/lib/network-context";
+import { OfflineScreen } from "@/components/OfflineScreen";
 
 export default function AuthLayout() {
   const { user, isLoading } = useAuth();
+  const { isConnected, isInternetReachable } = useNetwork();
 
   if (isLoading) {
     return (
@@ -13,6 +16,10 @@ export default function AuthLayout() {
         <ActivityIndicator size="large" color="#F7C948" />
       </View>
     );
+  }
+
+  if (!isConnected || !isInternetReachable) {
+    return <OfflineScreen />;
   }
 
   if (user) {

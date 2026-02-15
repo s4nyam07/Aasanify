@@ -8,6 +8,7 @@ import { useFonts, Outfit_400Regular, Outfit_500Medium, Outfit_600SemiBold, Outf
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { queryClient } from "@/lib/query-client";
 import { AuthProvider } from "@/lib/auth-context";
+import { NetworkProvider } from "@/lib/network-context";
 
 SplashScreen.preventAutoHideAsync();
 
@@ -40,14 +41,16 @@ export default function RootLayout() {
 
   return (
     <ErrorBoundary>
-      <AuthProvider>
-        <QueryClientProvider client={queryClient}>
-          <GestureHandlerRootView style={{ flex: 1, backgroundColor: '#0D0D0D' }}>
-            <StatusBar style="light" />
-            <RootLayoutNav />
-          </GestureHandlerRootView>
-        </QueryClientProvider>
-      </AuthProvider>
+      <NetworkProvider>
+        <AuthProvider>
+          <QueryClientProvider client={queryClient}>
+            <GestureHandlerRootView style={{ flex: 1, backgroundColor: '#0D0D0D' }}>
+              <StatusBar style="light" />
+              <RootLayoutNav />
+            </GestureHandlerRootView>
+          </QueryClientProvider>
+        </AuthProvider>
+      </NetworkProvider>
     </ErrorBoundary>
   );
 }

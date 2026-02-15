@@ -35,15 +35,15 @@ export async function downloadAudio(
       }
     };
 
-    const downloadResumable = FileSystem.createDownloadResumable(
+    const result = await FileSystem.downloadAsync(
       AUDIO_URL,
       getAudioPath(),
-      {},
-      callback
+      {
+        progressCallback: callback
+      }
     );
 
-    const result = await downloadResumable.downloadAsync();
-    return !!result?.uri;
+    return result.status === 200 && !!result.uri;
   } catch (e) {
     console.error('Download audio failed:', e);
     return false;
