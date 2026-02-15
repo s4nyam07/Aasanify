@@ -40,6 +40,14 @@
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
+    },
+    "extra": {
+      "router": {
+        "origin": "https://replit.com/"
+      },
+      "eas": {
+        "projectId": "27aa57d1-110f-43e8-b4af-f525f375db49"
+      }
     }
   }
 }
