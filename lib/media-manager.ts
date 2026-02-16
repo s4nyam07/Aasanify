@@ -1,7 +1,8 @@
 import * as FileSystem from 'expo-file-system';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Platform } from 'react-native';
 
-const AUDIO_URL = 'https://gorbzonklzeidxivpseg.supabase.co/storage/v1/object/public/Audios/sunsalutation.mp3';
+export const AUDIO_URL = 'https://gorbzonklzeidxivpseg.supabase.co/storage/v1/object/public/Audios/sunsalutation.mp3';
 const AUDIO_FILENAME = 'sunsalutation.mp3';
 const SETTINGS_KEY = '@aasanify_media_settings';
 
@@ -18,16 +19,32 @@ export async function isAudioDownloaded(): Promise<boolean> {
   }
 }
 
-export async function getAudioUri(): Promise<string | null> {
+export async function getAudioUri(forceStream: boolean = false): Promise<string | null> {
+  if (forceStream) {
+    // Force streaming from URL
+    return AUDIO_URL;
+  }
+
   const downloaded = await isAudioDownloaded();
-  if (downloaded) return getAudioPath();
-  return null;
+  if (downloaded) {
+    return getAudioPath();
+  }
+  
+  // Return URL for streaming if not downloaded
+  return AUDIO_URL;
 }
 
 export async function downloadAudio(
   onProgress?: (progress: number) => void
 ): Promise<boolean> {
   try {
+    // Check if already downloaded
+    const alreadyDownloaded = await isAudioDownloaded();
+    if (alreadyDownloaded) {
+      onProgress?.(1);
+      return true;
+    }
+
     const callback = (downloadProgress: FileSystem.DownloadProgressData) => {
       if (downloadProgress.totalBytesExpectedToWrite > 0) {
         const progress = downloadProgress.totalBytesWritten / downloadProgress.totalBytesExpectedToWrite;
@@ -35,17 +52,41 @@ export async function downloadAudio(
       }
     };
 
+    const audioPath = getAudioPath();
+    
+    // Ensure directory exists
+    const dir = FileSystem.documentDirectory;
+    if (!dir) {
+      console.error('Document directory not available');
+      return false;
+    }
+
     const result = await FileSystem.downloadAsync(
       AUDIO_URL,
-      getAudioPath(),
+      audioPath,
       {
-        progressCallback: callback
+        progressCallback: callback,
+        sessionId: 'aasanify-audio-download'
       }
     );
 
-    return result.status === 200 && !!result.uri;
+    if (result.status === 200) {
+      console.log('Audio downloaded successfully:', audioPath);
+      return true;
+    } else {
+      console.error('Download failed with status:', result.status);
+      return false;
+    }
   } catch (e) {
     console.error('Download audio failed:', e);
+    // Clean up partial download
+    try {
+      const path = getAudioPath();
+      const info = await FileSystem.getInfoAsync(path);
+      if (info.exists && info.size && info.size < 1000000) { // Less than 1MB likely incomplete
+        await FileSystem.deleteAsync(path, { idempotent: true });
+      }
+    } catch {}
     return false;
   }
 }

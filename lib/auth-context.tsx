@@ -11,7 +11,7 @@ import {
   getUserProfile,
   getFirebaseErrorMessage,
 } from '@/lib/firebase';
-import { saveProfileLocally, getLocalProfile, syncWithFirebase } from '@/lib/local-storage';
+import { saveProfileLocally, getLocalProfile, saveUserCredentialsLocally, getLocalUserCredentials, syncWithFirebase } from '@/lib/local-storage';
 import { useNetwork } from '@/lib/network-context';
 import { downloadAudio, isAudioDownloaded } from '@/lib/media-manager';
 
@@ -31,7 +31,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const { isConnected, isInternetReachable } = useNetwork();
+  const { isConnected, isInternetReachable, onOnline, offOnline } = useNetwork();
+
+  // Register sync callback with network context
+  useEffect(() => {
+    if (user) {
+      const syncCallback = async () => {
+        console.log('Syncing user data for:', user.uid);
+        await syncWithFirebase(user.uid, true);
+      };
+
+      onOnline(syncCallback);
+
+      return () => {
+        offOnline(syncCallback);
+      };
+    }
+  }, [user, onOnline, offOnline]);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
@@ -42,10 +58,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           let prof: UserProfile | null = null;
 
           if (isOnline) {
+            // Try to fetch from Firebase
             prof = await getUserProfile(firebaseUser.uid);
-            await saveProfileLocally(prof);
+            if (prof) {
+              await saveProfileLocally(prof);
+              // Save credentials for offline access
+              await saveUserCredentialsLocally(firebaseUser.uid, prof.email, prof.name);
+            }
             await syncWithFirebase(firebaseUser.uid, true);
           } else {
+            // Load from local storage
             prof = await getLocalProfile();
           }
 
@@ -72,8 +94,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const login = useCallback(async (email: string, password: string) => {
     try {
       const credential = await signInWithEmailAndPassword(auth, email, password);
-      const prof = await getUserProfile(credential.user.uid);
-      await saveProfileLocally(prof);
+      let prof: UserProfile | null = null;
+
+      try {
+        prof = await getUserProfile(credential.user.uid);
+        if (prof) {
+          await saveProfileLocally(prof);
+          // Save credentials for offline access
+          await saveUserCredentialsLocally(credential.user.uid, prof.email, prof.name);
+        }
+      } catch (e) {
+        console.error('Failed to fetch profile from Firebase:', e);
+        // Try local version
+        prof = await getLocalProfile();
+      }
+
       setProfile(prof);
 
       const audioExists = await isAudioDownloaded();
@@ -94,8 +129,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         email,
         createdAt: new Date().toISOString(),
       };
-      await saveUserProfile(credential.user.uid, newProfile);
+
+      // Try to save to Firebase
+      try {
+        await saveUserProfile(credential.user.uid, newProfile);
+      } catch (e) {
+        console.error('Failed to save profile to Firebase:', e);
+        // Continue anyway, will sync when online
+      }
+
+      // Always save locally
       await saveProfileLocally(newProfile);
+      await saveUserCredentialsLocally(credential.user.uid, email, name);
       setProfile(newProfile);
 
       const audioExists = await isAudioDownloaded();
@@ -116,8 +161,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (user) {
       try {
         const prof = await getUserProfile(user.uid);
-        await saveProfileLocally(prof);
-        setProfile(prof);
+        if (prof) {
+          await saveProfileLocally(prof);
+          await saveUserCredentialsLocally(user.uid, prof.email, prof.name);
+          setProfile(prof);
+        }
       } catch {
         const localProf = await getLocalProfile();
         setProfile(localProf);

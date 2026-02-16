@@ -346,25 +346,39 @@ function ActiveView({ config, onComplete }: {
         await Audio.setAudioModeAsync({
           playsInSilentModeIOS: true,
           staysActiveInBackground: true,
+          shouldDuckAndroid: true,
         });
-
-        const uri = await getAudioUri();
-        if (!uri || !mounted) return;
 
         const settings = await getMediaSettings();
         if (!settings.bgAudioEnabled || !mounted) return;
 
-        const { sound } = await Audio.Sound.createAsync(
-          { uri },
-          { isLooping: true, volume: 0.4, shouldPlay: true }
-        );
-        if (mounted) {
-          soundRef.current = sound;
-        } else {
-          await sound.unloadAsync();
+        // Use streaming if connected to internet, otherwise use downloaded or stream anyway
+        const uri = await getAudioUri(isInternetReachable);
+        if (!uri || !mounted) return;
+
+        try {
+          const { sound } = await Audio.Sound.createAsync(
+            { uri },
+            { isLooping: true, volume: 0.4, shouldPlay: true }
+          );
+          if (mounted) {
+            soundRef.current = sound;
+          } else {
+            await sound.unloadAsync();
+          }
+        } catch (audioError) {
+          console.error('Failed to load audio from URI:', uri, audioError);
+          // If streaming failed and we have internet, try downloading
+          if (isInternetReachable) {
+            const downloaded = await isAudioDownloaded();
+            if (!downloaded) {
+              console.log('Attempting to download audio after stream failure...');
+              // Don't block session start, just log the attempt
+            }
+          }
         }
       } catch (e) {
-        console.error('Audio load error:', e);
+        console.error('Audio setup error:', e);
       }
     };
 
@@ -377,7 +391,7 @@ function ActiveView({ config, onComplete }: {
         soundRef.current = null;
       }
     };
-  }, []);
+  }, [isInternetReachable]);
 
   const currentPose = SURYA_NAMASKAR_POSES[currentStep];
 

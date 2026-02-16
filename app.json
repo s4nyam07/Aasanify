@@ -17,7 +17,8 @@
       "supportsTablet": false,
       "bundleIdentifier": "com.aasanify",
       "infoPlist": {
-        "NSUserNotificationsUsageDescription": "This app uses notifications to remind you about your daily yoga practice."
+        "NSUserNotificationsUsageDescription": "This app uses notifications to remind you about your daily yoga practice.",
+        "NSLocalNetworkUsageDescription": "This app uses local network to stream audio content when available."
       }
     },
     "android": {
@@ -27,7 +28,9 @@
         "foregroundImage": "./assets/images/icon.png"
       },
       "permissions": [
-        "android.permission.POST_NOTIFICATIONS"
+        "android.permission.POST_NOTIFICATIONS",
+        "android.permission.INTERNET",
+        "android.permission.ACCESS_NETWORK_STATE"
       ]
     },
     "web": {
