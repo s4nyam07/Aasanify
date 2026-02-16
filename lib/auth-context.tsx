@@ -11,6 +11,9 @@ import {
   getUserProfile,
   getFirebaseErrorMessage,
 } from '@/lib/firebase';
+import { saveProfileLocally, getLocalProfile, syncWithFirebase } from '@/lib/local-storage';
+import { useNetwork } from '@/lib/network-context';
+import { downloadAudio, isAudioDownloaded } from '@/lib/media-manager';
 
 interface AuthContextType {
   user: User | null;
@@ -28,16 +31,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const { isConnected, isInternetReachable } = useNetwork();
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       setUser(firebaseUser);
       if (firebaseUser) {
         try {
-          const prof = await getUserProfile(firebaseUser.uid);
+          const isOnline = isConnected && isInternetReachable;
+          let prof: UserProfile | null = null;
+
+          if (isOnline) {
+            prof = await getUserProfile(firebaseUser.uid);
+            await saveProfileLocally(prof);
+            await syncWithFirebase(firebaseUser.uid, true);
+          } else {
+            prof = await getLocalProfile();
+          }
+
           setProfile(prof);
         } catch (e) {
           console.error('Failed to load profile:', e);
+          const localProf = await getLocalProfile();
+          setProfile(localProf);
         }
       } else {
         setProfile(null);
@@ -45,13 +61,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setIsLoading(false);
     });
     return unsubscribe;
-  }, []);
+  }, [isConnected, isInternetReachable]);
+
+  useEffect(() => {
+    if (user && isConnected && isInternetReachable) {
+      syncWithFirebase(user.uid, true);
+    }
+  }, [user, isConnected, isInternetReachable]);
 
   const login = useCallback(async (email: string, password: string) => {
     try {
       const credential = await signInWithEmailAndPassword(auth, email, password);
       const prof = await getUserProfile(credential.user.uid);
+      await saveProfileLocally(prof);
       setProfile(prof);
+
+      const audioExists = await isAudioDownloaded();
+      if (!audioExists) {
+        downloadAudio().catch(() => {});
+      }
     } catch (error: any) {
       throw new Error(getFirebaseErrorMessage(error.code));
     }
@@ -67,7 +95,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         createdAt: new Date().toISOString(),
       };
       await saveUserProfile(credential.user.uid, newProfile);
+      await saveProfileLocally(newProfile);
       setProfile(newProfile);
+
+      const audioExists = await isAudioDownloaded();
+      if (!audioExists) {
+        downloadAudio().catch(() => {});
+      }
     } catch (error: any) {
       throw new Error(getFirebaseErrorMessage(error.code));
     }
@@ -80,8 +114,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const refreshProfile = useCallback(async () => {
     if (user) {
-      const prof = await getUserProfile(user.uid);
-      setProfile(prof);
+      try {
+        const prof = await getUserProfile(user.uid);
+        await saveProfileLocally(prof);
+        setProfile(prof);
+      } catch {
+        const localProf = await getLocalProfile();
+        setProfile(localProf);
+      }
     }
   }, [user]);
 

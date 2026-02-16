@@ -15,14 +15,20 @@
     },
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "com.aasanify"
+      "bundleIdentifier": "com.aasanify",
+      "infoPlist": {
+        "NSUserNotificationsUsageDescription": "This app uses notifications to remind you about your daily yoga practice."
+      }
     },
     "android": {
       "package": "com.aasanify",
       "adaptiveIcon": {
         "backgroundColor": "#F7C948",
         "foregroundImage": "./assets/images/icon.png"
-      }
+      },
+      "permissions": [
+        "android.permission.POST_NOTIFICATIONS"
+      ]
     },
     "web": {
       "favicon": "./assets/images/favicon.png"
@@ -35,7 +41,14 @@
         }
       ],
       "expo-font",
-      "expo-web-browser"
+      "expo-web-browser",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/images/icon.png",
+          "color": "#F7C948"
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,

@@ -7,8 +7,6 @@ import { Platform, StyleSheet, View, ActivityIndicator } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAuth } from "@/lib/auth-context";
-import { useNetwork } from "@/lib/network-context";
-import { OfflineScreen } from "@/components/OfflineScreen";
 import Colors from "@/constants/colors";
 
 const C = Colors.dark;
@@ -122,7 +120,6 @@ function ClassicTabLayout() {
 
 export default function TabLayout() {
   const { user, isLoading } = useAuth();
-  const { isConnected, isInternetReachable } = useNetwork();
 
   if (isLoading) {
     return (
@@ -134,10 +131,6 @@ export default function TabLayout() {
 
   if (!user) {
     return <Redirect href="/(auth)/login" />;
-  }
-
-  if (!isConnected || !isInternetReachable) {
-    return <OfflineScreen />;
   }
 
   if (isLiquidGlassAvailable()) {

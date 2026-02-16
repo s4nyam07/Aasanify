@@ -15,6 +15,8 @@ import Animated, { FadeInDown, FadeInUp } from "react-native-reanimated";
 import * as Haptics from "expo-haptics";
 import { useAuth } from "@/lib/auth-context";
 import { getAllSessions, type SessionData } from "@/lib/firebase";
+import { getLocalSessions } from "@/lib/local-storage";
+import { useNetwork } from "@/lib/network-context";
 import Colors from "@/constants/colors";
 
 const C = Colors.dark;
@@ -50,18 +52,27 @@ function getGreeting(): string {
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const { user, profile } = useAuth();
+  const { isConnected, isInternetReachable } = useNetwork();
   const [sessions, setSessions] = useState<Record<string, SessionData>>({});
   const [loading, setLoading] = useState(true);
   const topPad = Platform.OS === 'web' ? 67 : insets.top;
 
   useEffect(() => {
     if (user) {
-      getAllSessions(user.uid)
-        .then(setSessions)
-        .catch(() => {})
-        .finally(() => setLoading(false));
+      const isOnline = isConnected && isInternetReachable;
+
+      if (isOnline) {
+        getAllSessions(user.uid)
+          .then(setSessions)
+          .catch(() => getLocalSessions().then(setSessions))
+          .finally(() => setLoading(false));
+      } else {
+        getLocalSessions()
+          .then(setSessions)
+          .finally(() => setLoading(false));
+      }
     }
-  }, [user]);
+  }, [user, isConnected, isInternetReachable]);
 
   const streak = calculateStreak(sessions);
   const todaySession = sessions[getToday()];

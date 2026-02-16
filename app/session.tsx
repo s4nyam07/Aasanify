@@ -28,8 +28,11 @@ import * as Haptics from "expo-haptics";
 import { Audio } from "expo-av";
 import { useAuth } from "@/lib/auth-context";
 import { saveSession } from "@/lib/firebase";
+import { saveSessionLocally } from "@/lib/local-storage";
 import { SURYA_NAMASKAR_POSES, getPoseImage } from "@/constants/poses";
-import { isAudioDownloaded, getAudioUri, getMediaSettings, type MediaSettings } from "@/lib/media-manager";
+import { isAudioDownloaded, downloadAudio, getAudioUri, getMediaSettings, type MediaSettings } from "@/lib/media-manager";
+import { AudioRequiredModal } from "@/components/AudioRequiredModal";
+import { useNetwork } from "@/lib/network-context";
 import Colors from "@/constants/colors";
 
 const C = Colors.dark;
@@ -68,7 +71,14 @@ function Stepper({ value, onValueChange, min, max, label, unit }: {
       <Text style={configStyles.stepperLabel}>{label}</Text>
       <View style={configStyles.stepperControls}>
         <Pressable
-          onPress={() => { if (value > min) { onValueChange(value - 1); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } }}
+          onPress={() => {
+            if (value > min) {
+              onValueChange(value - 1);
+              if (Platform.OS !== 'web') {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              }
+            }
+          }}
           style={[configStyles.stepperBtn, value <= min && { opacity: 0.3 }]}
           disabled={value <= min}
         >
@@ -76,7 +86,14 @@ function Stepper({ value, onValueChange, min, max, label, unit }: {
         </Pressable>
         <Text style={configStyles.stepperValue}>{value} {unit}</Text>
         <Pressable
-          onPress={() => { if (value < max) { onValueChange(value + 1); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } }}
+          onPress={() => {
+            if (value < max) {
+              onValueChange(value + 1);
+              if (Platform.OS !== 'web') {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              }
+            }
+          }}
           style={[configStyles.stepperBtn, value >= max && { opacity: 0.3 }]}
           disabled={value >= max}
         >
@@ -96,6 +113,10 @@ function ConfigView({ onStart }: { onStart: (config: { mode: Mode; rounds: numbe
   const [restSeconds, setRestSeconds] = useState(5);
   const [audioAvailable, setAudioAvailable] = useState(false);
   const [checking, setChecking] = useState(true);
+  const [showAudioModal, setShowAudioModal] = useState(false);
+  const [downloading, setDownloading] = useState(false);
+  const [downloadProgress, setDownloadProgress] = useState(0);
+  const { isConnected, isInternetReachable } = useNetwork();
   const topPad = Platform.OS === 'web' ? 67 : insets.top;
 
   useEffect(() => {
@@ -107,14 +128,41 @@ function ConfigView({ onStart }: { onStart: (config: { mode: Mode; rounds: numbe
 
   const handleStartPress = () => {
     if (!audioAvailable) {
-      Alert.alert(
-        "Audio Required",
-        "Please download the Sun Salutation audio from your Profile before starting a session.",
-        [{ text: "OK" }]
-      );
+      setShowAudioModal(true);
       return;
     }
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+    if (Platform.OS !== 'web') {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+    }
+    onStart({ mode, rounds, minutes, holdSeconds, restSeconds });
+  };
+
+  const handleDownloadNow = async () => {
+    setDownloading(true);
+    const success = await downloadAudio((progress) => {
+      setDownloadProgress(progress);
+    });
+    setDownloading(false);
+    if (success) {
+      setAudioAvailable(true);
+      setShowAudioModal(false);
+      if (Platform.OS !== 'web') {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      }
+    } else {
+      Alert.alert("Download Failed", "Could not download audio. Please check your connection.");
+    }
+  };
+
+  const handleStreamNow = () => {
+    if (!isConnected || !isInternetReachable) {
+      Alert.alert("No Connection", "Streaming requires an active internet connection.");
+      return;
+    }
+    setShowAudioModal(false);
+    if (Platform.OS !== 'web') {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+    }
     onStart({ mode, rounds, minutes, holdSeconds, restSeconds });
   };
 
@@ -138,13 +186,23 @@ function ConfigView({ onStart }: { onStart: (config: { mode: Mode; rounds: numbe
         <View style={configStyles.modeToggle}>
           <Pressable
             style={[configStyles.modeBtn, mode === 'rounds' && configStyles.modeBtnActive]}
-            onPress={() => { setMode('rounds'); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
+            onPress={() => {
+              setMode('rounds');
+              if (Platform.OS !== 'web') {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              }
+            }}
           >
             <Text style={[configStyles.modeBtnText, mode === 'rounds' && configStyles.modeBtnTextActive]}>Rounds</Text>
           </Pressable>
           <Pressable
             style={[configStyles.modeBtn, mode === 'minutes' && configStyles.modeBtnActive]}
-            onPress={() => { setMode('minutes'); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); }}
+            onPress={() => {
+              setMode('minutes');
+              if (Platform.OS !== 'web') {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              }
+            }}
           >
             <Text style={[configStyles.modeBtnText, mode === 'minutes' && configStyles.modeBtnTextActive]}>Minutes</Text>
           </Pressable>
@@ -163,7 +221,7 @@ function ConfigView({ onStart }: { onStart: (config: { mode: Mode; rounds: numbe
         {!checking && !audioAvailable && (
           <Animated.View entering={FadeIn.duration(300)} style={configStyles.warningBox}>
             <Ionicons name="warning-outline" size={18} color={C.accent} />
-            <Text style={configStyles.warningText}>Download audio from Profile to start</Text>
+            <Text style={configStyles.warningText}>Audio not downloaded - tap Start to choose option</Text>
           </Animated.View>
         )}
       </Animated.View>
@@ -172,15 +230,23 @@ function ConfigView({ onStart }: { onStart: (config: { mode: Mode; rounds: numbe
         <Pressable
           style={({ pressed }) => [
             configStyles.startBtn,
-            !audioAvailable && configStyles.startBtnDisabled,
-            pressed && audioAvailable && { opacity: 0.9, transform: [{ scale: 0.98 }] },
+            pressed && { opacity: 0.9, transform: [{ scale: 0.98 }] },
           ]}
           onPress={handleStartPress}
         >
-          <Ionicons name="play" size={24} color={audioAvailable ? C.background : C.textSecondary} />
-          <Text style={[configStyles.startBtnText, !audioAvailable && { color: C.textSecondary }]}>Start Session</Text>
+          <Ionicons name="play" size={24} color={C.background} />
+          <Text style={configStyles.startBtnText}>Start Session</Text>
         </Pressable>
       </Animated.View>
+
+      <AudioRequiredModal
+        visible={showAudioModal}
+        onDownload={handleDownloadNow}
+        onStream={handleStreamNow}
+        onCancel={() => setShowAudioModal(false)}
+        downloading={downloading}
+        downloadProgress={downloadProgress}
+      />
     </View>
   );
 }
@@ -548,19 +614,29 @@ export default function SessionScreen() {
   const handleComplete = (rounds: number, elapsed: number) => {
     setCompletionData({ rounds, elapsed });
     setPhase('complete');
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    if (Platform.OS !== 'web') {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    }
     safeSpeak("Session complete. Namaste.", { language: 'en-US', rate: 0.85 });
   };
 
   const handleSave = async () => {
     if (user && completionData) {
+      const sessionData = {
+        completed: true,
+        durationMinutes: Math.ceil(completionData.elapsed / 60),
+        roundsDone: completionData.rounds,
+        sessionType: 'Surya Namaskar',
+      };
+
       try {
-        await saveSession(user.uid, getToday(), {
-          completed: true,
-          durationMinutes: Math.ceil(completionData.elapsed / 60),
-          roundsDone: completionData.rounds,
-          sessionType: 'Surya Namaskar',
-        });
+        await saveSessionLocally(getToday(), sessionData);
+
+        try {
+          await saveSession(user.uid, getToday(), sessionData);
+        } catch (e) {
+          console.error('Failed to save session to Firebase:', e);
+        }
       } catch (e) {
         console.error('Failed to save session:', e);
       }
