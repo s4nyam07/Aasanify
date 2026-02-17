@@ -128,7 +128,7 @@ export default function HomeScreen() {
         </Animated.View>
 
         <Animated.View entering={FadeInDown.delay(400).duration(500)} style={styles.todayCard}>
-          <Text style={styles.sectionTitle}>Today's Summary</Text>
+          <Text style={styles.sectionTitle}>Today&apos;s Summary</Text>
           {todaySession ? (
             <View style={styles.todayStats}>
               <View style={styles.todayStat}>
@@ -152,7 +152,7 @@ export default function HomeScreen() {
           ) : (
             <View style={styles.noSession}>
               <Ionicons name="moon-outline" size={32} color={C.textTertiary} />
-              <Text style={styles.noSessionText}>No session yet today</Text>
+              <Text style={styles.noSessionText}>No session today</Text>
               <Text style={styles.noSessionSub}>Tap the button above to begin</Text>
             </View>
           )}

@@ -13,7 +13,7 @@ export function OfflineScreen() {
         <View style={styles.iconContainer}>
           <Ionicons name="cloud-offline-outline" size={80} color={C.textTertiary} />
         </View>
-        <Text style={styles.title}>You're Offline</Text>
+        <Text style={styles.title}>You&apos;re Offline</Text>
         <Text style={styles.message}>
           For security reasons, we need you to be connected to the internet to help us authenticate.
         </Text>

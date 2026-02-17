@@ -113,7 +113,7 @@ export default function LoginScreen() {
 
           <Pressable onPress={() => router.replace("/(auth)/signup")} style={styles.linkBtn}>
             <Text style={styles.linkText}>
-              Don't have an account? <Text style={styles.linkAccent}>Sign Up</Text>
+              Don&apos;t have an account? <Text style={styles.linkAccent}>Sign Up</Text>
             </Text>
           </Pressable>
         </Animated.View>

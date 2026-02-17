@@ -13,7 +13,7 @@ import {
 } from '@/lib/firebase';
 import { saveProfileLocally, getLocalProfile, syncWithFirebase } from '@/lib/local-storage';
 import { useNetwork } from '@/lib/network-context';
-import { downloadAudio, isAudioDownloaded } from '@/lib/media-manager';
+import { initializeReminders } from '@/lib/notifications';
 
 interface AuthContextType {
   user: User | null;
@@ -76,10 +76,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       await saveProfileLocally(prof);
       setProfile(prof);
 
-      const audioExists = await isAudioDownloaded();
-      if (!audioExists) {
-        downloadAudio().catch(() => {});
-      }
+      initializeReminders().catch(() => {});
     } catch (error: any) {
       throw new Error(getFirebaseErrorMessage(error.code));
     }
@@ -98,10 +95,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       await saveProfileLocally(newProfile);
       setProfile(newProfile);
 
-      const audioExists = await isAudioDownloaded();
-      if (!audioExists) {
-        downloadAudio().catch(() => {});
-      }
+      initializeReminders().catch(() => {});
     } catch (error: any) {
       throw new Error(getFirebaseErrorMessage(error.code));
     }

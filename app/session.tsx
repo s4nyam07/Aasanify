@@ -6,7 +6,6 @@ import {
   Pressable,
   Platform,
   Dimensions,
-  Alert,
 } from "react-native";
 import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -25,14 +24,12 @@ import Animated, {
 import Svg, { Circle } from "react-native-svg";
 import * as Speech from "expo-speech";
 import * as Haptics from "expo-haptics";
-import { Audio } from "expo-av";
+import { activateKeepAwakeAsync, deactivateKeepAwake } from "expo-keep-awake";
 import { useAuth } from "@/lib/auth-context";
 import { saveSession } from "@/lib/firebase";
 import { saveSessionLocally } from "@/lib/local-storage";
 import { SURYA_NAMASKAR_POSES, getPoseImage } from "@/constants/poses";
-import { isAudioDownloaded, downloadAudio, getAudioUri, getMediaSettings, type MediaSettings } from "@/lib/media-manager";
-import { AudioRequiredModal } from "@/components/AudioRequiredModal";
-import { useNetwork } from "@/lib/network-context";
+import { getMediaSettings, type MediaSettings } from "@/lib/media-manager";
 import Colors from "@/constants/colors";
 
 const C = Colors.dark;
@@ -111,55 +108,9 @@ function ConfigView({ onStart }: { onStart: (config: { mode: Mode; rounds: numbe
   const [minutes, setMinutes] = useState(10);
   const [holdSeconds, setHoldSeconds] = useState(15);
   const [restSeconds, setRestSeconds] = useState(5);
-  const [audioAvailable, setAudioAvailable] = useState(false);
-  const [checking, setChecking] = useState(true);
-  const [showAudioModal, setShowAudioModal] = useState(false);
-  const [downloading, setDownloading] = useState(false);
-  const [downloadProgress, setDownloadProgress] = useState(0);
-  const { isConnected, isInternetReachable } = useNetwork();
   const topPad = Platform.OS === 'web' ? 67 : insets.top;
 
-  useEffect(() => {
-    isAudioDownloaded().then(ok => {
-      setAudioAvailable(ok);
-      setChecking(false);
-    });
-  }, []);
-
   const handleStartPress = () => {
-    if (!audioAvailable) {
-      setShowAudioModal(true);
-      return;
-    }
-    if (Platform.OS !== 'web') {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
-    }
-    onStart({ mode, rounds, minutes, holdSeconds, restSeconds });
-  };
-
-  const handleDownloadNow = async () => {
-    setDownloading(true);
-    const success = await downloadAudio((progress) => {
-      setDownloadProgress(progress);
-    });
-    setDownloading(false);
-    if (success) {
-      setAudioAvailable(true);
-      setShowAudioModal(false);
-      if (Platform.OS !== 'web') {
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      }
-    } else {
-      Alert.alert("Download Failed", "Could not download audio. Please check your connection.");
-    }
-  };
-
-  const handleStreamNow = () => {
-    if (!isConnected || !isInternetReachable) {
-      Alert.alert("No Connection", "Streaming requires an active internet connection.");
-      return;
-    }
-    setShowAudioModal(false);
     if (Platform.OS !== 'web') {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
     }
@@ -217,13 +168,6 @@ function ConfigView({ onStart }: { onStart: (config: { mode: Mode; rounds: numbe
           <Stepper value={holdSeconds} onValueChange={setHoldSeconds} min={5} max={60} label="Hold Time" unit="sec" />
           <Stepper value={restSeconds} onValueChange={setRestSeconds} min={2} max={20} label="Rest Time" unit="sec" />
         </View>
-
-        {!checking && !audioAvailable && (
-          <Animated.View entering={FadeIn.duration(300)} style={configStyles.warningBox}>
-            <Ionicons name="warning-outline" size={18} color={C.accent} />
-            <Text style={configStyles.warningText}>Audio not downloaded - tap Start to choose option</Text>
-          </Animated.View>
-        )}
       </Animated.View>
 
       <Animated.View entering={FadeInDown.delay(300).duration(400)} style={[configStyles.bottomArea, { paddingBottom: Platform.OS === 'web' ? 34 : insets.bottom + 16 }]}>
@@ -238,15 +182,6 @@ function ConfigView({ onStart }: { onStart: (config: { mode: Mode; rounds: numbe
           <Text style={configStyles.startBtnText}>Start Session</Text>
         </Pressable>
       </Animated.View>
-
-      <AudioRequiredModal
-        visible={showAudioModal}
-        onDownload={handleDownloadNow}
-        onStream={handleStreamNow}
-        onCancel={() => setShowAudioModal(false)}
-        downloading={downloading}
-        downloadProgress={downloadProgress}
-      />
     </View>
   );
 }
@@ -318,15 +253,26 @@ function ActiveView({ config, onComplete }: {
   const [timeRemaining, setTimeRemaining] = useState(config.holdSeconds);
   const [isPaused, setIsPaused] = useState(false);
   const [totalElapsed, setTotalElapsed] = useState(0);
-  const [mediaSettings, setMediaSettings] = useState<MediaSettings>({ ttsEnabled: true, bgAudioEnabled: true });
+  const [mediaSettings, setMediaSettings] = useState<MediaSettings>({ ttsEnabled: true });
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const soundRef = useRef<Audio.Sound | null>(null);
   const topPad = Platform.OS === 'web' ? 67 : insets.top;
 
   const breathScale = useSharedValue(1);
 
   useEffect(() => {
     getMediaSettings().then(setMediaSettings);
+  }, []);
+
+  useEffect(() => {
+    if (Platform.OS !== 'web') {
+      activateKeepAwakeAsync();
+    }
+
+    return () => {
+      if (Platform.OS !== 'web') {
+        deactivateKeepAwake();
+      }
+    };
   }, []);
 
   useEffect(() => {
@@ -337,46 +283,6 @@ function ActiveView({ config, onComplete }: {
       ),
       -1,
     );
-  }, []);
-
-  useEffect(() => {
-    let mounted = true;
-    const loadAudio = async () => {
-      try {
-        await Audio.setAudioModeAsync({
-          playsInSilentModeIOS: true,
-          staysActiveInBackground: true,
-        });
-
-        const uri = await getAudioUri();
-        if (!uri || !mounted) return;
-
-        const settings = await getMediaSettings();
-        if (!settings.bgAudioEnabled || !mounted) return;
-
-        const { sound } = await Audio.Sound.createAsync(
-          { uri },
-          { isLooping: true, volume: 0.4, shouldPlay: true }
-        );
-        if (mounted) {
-          soundRef.current = sound;
-        } else {
-          await sound.unloadAsync();
-        }
-      } catch (e) {
-        console.error('Audio load error:', e);
-      }
-    };
-
-    loadAudio();
-
-    return () => {
-      mounted = false;
-      if (soundRef.current) {
-        soundRef.current.unloadAsync().catch(() => {});
-        soundRef.current = null;
-      }
-    };
   }, []);
 
   const currentPose = SURYA_NAMASKAR_POSES[currentStep];
@@ -430,11 +336,8 @@ function ActiveView({ config, onComplete }: {
   useEffect(() => {
     if (isPaused) {
       if (intervalRef.current) clearInterval(intervalRef.current);
-      if (soundRef.current) soundRef.current.setStatusAsync({ shouldPlay: false }).catch(() => {});
       return;
     }
-
-    if (soundRef.current) soundRef.current.setStatusAsync({ shouldPlay: true }).catch(() => {});
 
     intervalRef.current = setInterval(() => {
       setTotalElapsed(e => e + 1);
@@ -459,10 +362,8 @@ function ActiveView({ config, onComplete }: {
   const cleanup = useCallback(() => {
     safeSpeakStop();
     if (intervalRef.current) clearInterval(intervalRef.current);
-    if (soundRef.current) {
-      soundRef.current.stopAsync().catch(() => {});
-      soundRef.current.unloadAsync().catch(() => {});
-      soundRef.current = null;
+    if (Platform.OS !== 'web') {
+      deactivateKeepAwake();
     }
   }, []);
 
@@ -741,23 +642,6 @@ const configStyles = StyleSheet.create({
     minWidth: 60,
     textAlign: "center",
   },
-  warningBox: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    backgroundColor: C.accentDim,
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    marginTop: 20,
-    width: '100%',
-  },
-  warningText: {
-    fontFamily: "Outfit_500Medium",
-    fontSize: 13,
-    color: C.accent,
-    flex: 1,
-  },
   bottomArea: {
     paddingHorizontal: 24,
     paddingTop: 16,
@@ -770,9 +654,6 @@ const configStyles = StyleSheet.create({
     backgroundColor: C.accent,
     borderRadius: 16,
     paddingVertical: 18,
-  },
-  startBtnDisabled: {
-    backgroundColor: C.surfaceElevated,
   },
   startBtnText: {
     fontFamily: "Outfit_700Bold",

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect } from "react";
 import {
   StyleSheet,
   Text,
@@ -8,23 +8,15 @@ import {
   Platform,
   Alert,
   Switch,
-  ActivityIndicator,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import Animated, { FadeInDown } from "react-native-reanimated";
 import * as Haptics from "expo-haptics";
-import { useFocusEffect } from "expo-router";
 import { useAuth } from "@/lib/auth-context";
 import { getAllSessions, type SessionData } from "@/lib/firebase";
-import {
-  isAudioDownloaded,
-  downloadAudio,
-  deleteAudio,
-  getMediaSettings,
-  saveMediaSettings,
-  type MediaSettings,
-} from "@/lib/media-manager";
+import { getMediaSettings, saveMediaSettings, type MediaSettings } from "@/lib/media-manager";
+import { getReminderSettings, saveReminderSettings, type ReminderSettings } from "@/lib/notifications";
 import Colors from "@/constants/colors";
 
 const C = Colors.dark;
@@ -33,20 +25,21 @@ export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
   const { user, profile, logout } = useAuth();
   const [sessions, setSessions] = useState<Record<string, SessionData>>({});
+  const [settings, setSettings] = useState<MediaSettings>({ ttsEnabled: true });
+  const [reminders, setReminders] = useState<ReminderSettings>({ enabled: false, hour: 7, minute: 0 });
   const topPad = Platform.OS === 'web' ? 67 : insets.top;
 
-  const [audioReady, setAudioReady] = useState(false);
-  const [downloading, setDownloading] = useState(false);
-  const [downloadProgress, setDownloadProgress] = useState(0);
-  const [settings, setSettings] = useState<MediaSettings>({ ttsEnabled: true, bgAudioEnabled: true });
-
-  const checkMedia = useCallback(async () => {
-    const [downloaded, s] = await Promise.all([isAudioDownloaded(), getMediaSettings()]);
-    setAudioReady(downloaded);
-    setSettings(s);
+  useEffect(() => {
+    const loadSettings = async () => {
+      const [mediaSet, reminderSet] = await Promise.all([
+        getMediaSettings(),
+        getReminderSettings(),
+      ]);
+      setSettings(mediaSet);
+      setReminders(reminderSet);
+    };
+    loadSettings();
   }, []);
-
-  useFocusEffect(useCallback(() => { checkMedia(); }, [checkMedia]));
 
   useEffect(() => {
     if (user) {
@@ -69,50 +62,51 @@ export default function ProfileScreen() {
         text: "Sign Out",
         style: "destructive",
         onPress: () => {
-          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+          if (Platform.OS !== 'web') {
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+          }
           logout();
         },
       },
     ]);
   };
 
-  const handleDownload = async () => {
-    setDownloading(true);
-    setDownloadProgress(0);
-    const ok = await downloadAudio((p) => setDownloadProgress(p));
-    setDownloading(false);
-    if (ok) {
-      setAudioReady(true);
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    } else {
-      Alert.alert("Download Failed", "Could not download audio. Please check your connection and try again.");
-    }
-  };
-
-  const handleDelete = () => {
-    const doDelete = async () => {
-      const ok = await deleteAudio();
-      if (ok) {
-        setAudioReady(false);
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-      }
-    };
-
-    if (Platform.OS === 'web') {
-      doDelete();
-      return;
-    }
-    Alert.alert("Delete Audio", "Remove downloaded audio? You'll need to re-download before your next session.", [
-      { text: "Cancel", style: "cancel" },
-      { text: "Delete", style: "destructive", onPress: doDelete },
-    ]);
-  };
-
-  const toggleSetting = async (key: keyof MediaSettings) => {
-    const next = { ...settings, [key]: !settings[key] };
+  const toggleTTS = async () => {
+    const next = { ...settings, ttsEnabled: !settings.ttsEnabled };
     setSettings(next);
     await saveMediaSettings(next);
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    if (Platform.OS !== 'web') {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    }
+  };
+
+  const toggleReminder = async () => {
+    const next = { ...reminders, enabled: !reminders.enabled };
+    setReminders(next);
+    await saveReminderSettings(next);
+    if (Platform.OS !== 'web') {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    }
+  };
+
+  const handleTimeChange = (type: 'hour' | 'minute', increase: boolean) => {
+    const newReminders = { ...reminders };
+    if (type === 'hour') {
+      let newHour = reminders.hour + (increase ? 1 : -1);
+      if (newHour < 0) newHour = 23;
+      if (newHour > 23) newHour = 0;
+      newReminders.hour = newHour;
+    } else {
+      let newMinute = reminders.minute + (increase ? 15 : -15);
+      if (newMinute < 0) newMinute = 45;
+      if (newMinute > 59) newMinute = 0;
+      newReminders.minute = newMinute;
+    }
+    setReminders(newReminders);
+    saveReminderSettings(newReminders);
+    if (Platform.OS !== 'web') {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    }
   };
 
   const initials = profile?.name
@@ -129,6 +123,12 @@ export default function ProfileScreen() {
       "Premium features and subscription plans will be available soon. Stay tuned!",
       [{ text: "OK" }]
     );
+  };
+
+  const formatTime = (hour: number, minute: number) => {
+    const ampm = hour >= 12 ? 'PM' : 'AM';
+    const displayHour = hour % 12 || 12;
+    return `${displayHour}:${String(minute).padStart(2, '0')} ${ampm}`;
   };
 
   return (
@@ -173,69 +173,83 @@ export default function ProfileScreen() {
           </View>
         </Animated.View>
 
-        <Animated.View entering={FadeInDown.delay(250).duration(500)} style={styles.audioCard}>
-          <View style={styles.audioHeader}>
-            <Ionicons name="musical-notes" size={22} color={C.accent} />
-            <Text style={styles.audioTitle}>Audio Library</Text>
-          </View>
-
-          <View style={styles.audioItem}>
-            <View style={styles.audioItemLeft}>
-              <View style={[styles.audioIcon, audioReady && styles.audioIconReady]}>
-                <Ionicons name={audioReady ? "checkmark-circle" : "cloud-download-outline"} size={20} color={audioReady ? C.success : C.textSecondary} />
-              </View>
-              <View style={styles.audioItemInfo}>
-                <Text style={styles.audioItemName}>Sun Salutation</Text>
-                <Text style={styles.audioItemSub}>{audioReady ? "Downloaded" : "Not downloaded"}</Text>
-              </View>
-            </View>
-
-            {downloading ? (
-              <View style={styles.downloadingContainer}>
-                <ActivityIndicator size="small" color={C.accent} />
-                <Text style={styles.progressText}>{Math.round(downloadProgress * 100)}%</Text>
-              </View>
-            ) : audioReady ? (
-              <Pressable onPress={handleDelete} hitSlop={10} style={styles.deleteBtn}>
-                <Ionicons name="trash-outline" size={20} color={C.error} />
-              </Pressable>
-            ) : (
-              <Pressable
-                onPress={handleDownload}
-                style={({ pressed }) => [styles.dlBtn, pressed && { opacity: 0.8 }]}
-              >
-                <Ionicons name="download-outline" size={18} color={C.background} />
-                <Text style={styles.dlBtnText}>Download</Text>
-              </Pressable>
-            )}
-          </View>
-
-          <View style={styles.audioDivider} />
-
-          <View style={styles.toggleRow}>
-            <View style={styles.toggleInfo}>
-              <Ionicons name="volume-high-outline" size={20} color={C.textSecondary} />
-              <Text style={styles.toggleLabel}>Background Audio</Text>
-            </View>
-            <Switch
-              value={settings.bgAudioEnabled}
-              onValueChange={() => toggleSetting('bgAudioEnabled')}
-              trackColor={{ false: C.surfaceElevated, true: C.accentDim }}
-              thumbColor={settings.bgAudioEnabled ? C.accent : C.textSecondary}
-            />
+        <Animated.View entering={FadeInDown.delay(250).duration(500)} style={styles.settingsCard}>
+          <View style={styles.settingsHeader}>
+            <Ionicons name="settings-outline" size={22} color={C.accent} />
+            <Text style={styles.settingsTitle}>Settings</Text>
           </View>
 
           <View style={styles.toggleRow}>
             <View style={styles.toggleInfo}>
               <Ionicons name="mic-outline" size={20} color={C.textSecondary} />
-              <Text style={styles.toggleLabel}>Voice (TTS) Guidance</Text>
+              <Text style={styles.toggleLabel}>Voice Guidance (TTS)</Text>
             </View>
             <Switch
               value={settings.ttsEnabled}
-              onValueChange={() => toggleSetting('ttsEnabled')}
+              onValueChange={toggleTTS}
               trackColor={{ false: C.surfaceElevated, true: C.accentDim }}
               thumbColor={settings.ttsEnabled ? C.accent : C.textSecondary}
             />
+          </View>
+
+          <View style={styles.settingsDivider} />
+
+          <View style={styles.reminderSection}>
+            <View style={styles.reminderHeader}>
+              <View style={styles.toggleInfo}>
+                <Ionicons name="notifications-outline" size={20} color={C.textSecondary} />
+                <Text style={styles.toggleLabel}>Daily Reminder</Text>
+              </View>
+              <Switch
+                value={reminders.enabled}
+                onValueChange={toggleReminder}
+                trackColor={{ false: C.surfaceElevated, true: C.accentDim }}
+                thumbColor={reminders.enabled ? C.accent : C.textSecondary}
+              />
+            </View>
+
+            {reminders.enabled && (
+              <View style={styles.timePickerContainer}>
+                <Text style={styles.timePickerLabel}>Practice Time</Text>
+                <View style={styles.timePicker}>
+                  <View style={styles.timeControl}>
+                    <Pressable
+                      onPress={() => handleTimeChange('hour', true)}
+                      style={styles.timeBtn}
+                    >
+                      <Ionicons name="chevron-up" size={20} color={C.text} />
+                    </Pressable>
+                    <Text style={styles.timeValue}>{String(reminders.hour % 12 || 12).padStart(2, '0')}</Text>
+                    <Pressable
+                      onPress={() => handleTimeChange('hour', false)}
+                      style={styles.timeBtn}
+                    >
+                      <Ionicons name="chevron-down" size={20} color={C.text} />
+                    </Pressable>
+                  </View>
+                  <Text style={styles.timeColon}>:</Text>
+                  <View style={styles.timeControl}>
+                    <Pressable
+                      onPress={() => handleTimeChange('minute', true)}
+                      style={styles.timeBtn}
+                    >
+                      <Ionicons name="chevron-up" size={20} color={C.text} />
+                    </Pressable>
+                    <Text style={styles.timeValue}>{String(reminders.minute).padStart(2, '0')}</Text>
+                    <Pressable
+                      onPress={() => handleTimeChange('minute', false)}
+                      style={styles.timeBtn}
+                    >
+                      <Ionicons name="chevron-down" size={20} color={C.text} />
+                    </Pressable>
+                  </View>
+                  <Text style={styles.timeAMPM}>{reminders.hour >= 12 ? 'PM' : 'AM'}</Text>
+                </View>
+                <Text style={styles.timeHint}>
+                  You&apos;ll receive a reminder at {formatTime(reminders.hour, reminders.minute)} daily
+                </Text>
+              </View>
+            )}
           </View>
         </Animated.View>
 
@@ -274,11 +288,15 @@ export default function ProfileScreen() {
             <View style={styles.subscriptionFeatures}>
               <View style={styles.featureRow}>
                 <Ionicons name="checkmark-circle" size={18} color={C.success} />
-                <Text style={styles.featureText}>Basic Surya Namaskar</Text>
+                <Text style={styles.featureText}>Surya Namaskar with TTS</Text>
               </View>
               <View style={styles.featureRow}>
                 <Ionicons name="checkmark-circle" size={18} color={C.success} />
-                <Text style={styles.featureText}>Session tracking</Text>
+                <Text style={styles.featureText}>Session tracking & analytics</Text>
+              </View>
+              <View style={styles.featureRow}>
+                <Ionicons name="checkmark-circle" size={18} color={C.success} />
+                <Text style={styles.featureText}>Offline mode</Text>
               </View>
               <View style={styles.featureRow}>
                 <Ionicons name="lock-closed" size={18} color={C.textTertiary} />
@@ -401,7 +419,7 @@ const styles = StyleSheet.create({
     height: 44,
     backgroundColor: C.border,
   },
-  audioCard: {
+  settingsCard: {
     backgroundColor: C.surface,
     borderRadius: 20,
     padding: 18,
@@ -409,85 +427,18 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: C.border,
   },
-  audioHeader: {
+  settingsHeader: {
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
     marginBottom: 16,
   },
-  audioTitle: {
+  settingsTitle: {
     fontFamily: "Outfit_600SemiBold",
     fontSize: 17,
     color: C.text,
   },
-  audioItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-  },
-  audioItemLeft: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    flex: 1,
-  },
-  audioIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
-    backgroundColor: C.surfaceElevated,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  audioIconReady: {
-    backgroundColor: 'rgba(74, 222, 128, 0.1)',
-  },
-  audioItemInfo: {
-    gap: 2,
-  },
-  audioItemName: {
-    fontFamily: "Outfit_500Medium",
-    fontSize: 15,
-    color: C.text,
-  },
-  audioItemSub: {
-    fontFamily: "Outfit_400Regular",
-    fontSize: 12,
-    color: C.textSecondary,
-  },
-  downloadingContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-  },
-  progressText: {
-    fontFamily: "Outfit_500Medium",
-    fontSize: 13,
-    color: C.accent,
-  },
-  deleteBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
-    backgroundColor: 'rgba(255, 107, 107, 0.1)',
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  dlBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    backgroundColor: C.accent,
-    borderRadius: 10,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-  },
-  dlBtnText: {
-    fontFamily: "Outfit_600SemiBold",
-    fontSize: 13,
-    color: C.background,
-  },
-  audioDivider: {
+  settingsDivider: {
     height: 1,
     backgroundColor: C.border,
     marginVertical: 14,
@@ -507,6 +458,71 @@ const styles = StyleSheet.create({
     fontFamily: "Outfit_500Medium",
     fontSize: 15,
     color: C.text,
+  },
+  reminderSection: {
+    gap: 12,
+  },
+  reminderHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingVertical: 8,
+  },
+  timePickerContainer: {
+    marginTop: 8,
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: C.border,
+  },
+  timePickerLabel: {
+    fontFamily: "Outfit_500Medium",
+    fontSize: 14,
+    color: C.textSecondary,
+    marginBottom: 12,
+  },
+  timePicker: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    marginBottom: 12,
+  },
+  timeControl: {
+    alignItems: "center",
+    gap: 6,
+  },
+  timeBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: C.surfaceElevated,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  timeValue: {
+    fontFamily: "Outfit_700Bold",
+    fontSize: 32,
+    color: C.accent,
+    minWidth: 60,
+    textAlign: "center",
+  },
+  timeColon: {
+    fontFamily: "Outfit_700Bold",
+    fontSize: 32,
+    color: C.accent,
+    marginBottom: 8,
+  },
+  timeAMPM: {
+    fontFamily: "Outfit_600SemiBold",
+    fontSize: 18,
+    color: C.textSecondary,
+    marginTop: 24,
+  },
+  timeHint: {
+    fontFamily: "Outfit_400Regular",
+    fontSize: 12,
+    color: C.textTertiary,
+    textAlign: "center",
   },
   infoCard: {
     backgroundColor: C.surface,
